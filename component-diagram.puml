@@ -1,0 +1,100 @@
+@startuml component-diagram
+title Диаграмма компонентов: контекстная параметризация модели привода\nROS 2 используется только в слое 4 (HIL и shadow mode)
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam ArrowColor #444444
+
+' ---------------- Слой 1 ----------------
+package "Слой 1. Стенд и машина записи (без ROS 2)" as L1 #EAF2FF {
+  component "Привод\nBLDC-мотор + редуктор" as drive
+  component "Датчик момента\n(эталон, выходной вал)" as tq_ref
+  component "Нагрузка\nплечо + груз" as load
+  component "Датчик тока" as cur
+  component "Энкодер\nположение и скорость" as enc
+  component "Датчики температуры\nмотор, редуктор, среда" as temp
+  component "Микроконтроллер\nопрос датчиков,\nметки времени" as mcu
+  component "Логгер на ПК\nзапись, паспорт испытания" as logger
+}
+
+database "Сырые данные\nCSV + паспорт испытания" as raw
+
+' ---------------- Слой 2 ----------------
+package "Слой 2. Идентификация и модель (Python, без ROS 2)" as L2 #EDF8EE {
+  component "Контроль качества\nи предобработка" as qc
+  component "Идентификация\nпараметров привода" as ident
+  component "Выявление зависимостей\nот контекста эксплуатации" as dep
+  component "Математическая модель\nзависимостей параметров" as model
+  component "Baseline 1\nфиксированные параметры" as b1
+  component "Baseline 2\ndomain randomization ±30 %" as b2
+  component "Оценка адекватности\nRMSE момента" as eval
+}
+
+' ---------------- Слой 3 ----------------
+package "Слой 3. Симуляция (без ROS 2)" as L3 #FFF6E5 {
+  component "Модуль модели привода\nдля симулятора" as simmod
+  component "MuJoCo" as mujoco
+  component "Isaac Sim / Isaac Lab" as isaac
+  component "Обучение и оценка\nRL-политики" as rl
+}
+
+' ---------------- Слой 4 ----------------
+package "Слой 4. ROS 2 (только HIL и shadow mode)" as L4 #FDECEC {
+  component "Мост ROS 2 – Isaac Sim" as bridge
+  component "Драйвер привода\nROS 2" as drv
+  component "rosbag2\n(опционально)" as bag
+}
+
+' ---- механика стенда ----
+drive -- tq_ref : вал
+tq_ref -- load : вал
+
+' ---- измерения ----
+tq_ref --> mcu : момент (эталон)
+cur --> mcu : ток
+enc --> mcu : положение, скорость
+temp --> mcu : температуры
+mcu --> logger : поток данных\nс метками времени
+logger --> raw : запись
+
+' ---- идентификация и модель ----
+raw --> qc
+qc --> ident
+ident --> dep
+dep --> model
+model --> simmod : параметры как\nфункции контекста
+b1 --> simmod
+b2 --> simmod
+
+' ---- симуляция ----
+simmod --> mujoco
+simmod --> isaac
+mujoco --> rl
+isaac --> rl
+
+' ---- оценка ----
+mujoco ..> eval : момент модели
+isaac ..> eval : момент модели
+raw ..> eval : измеренный момент (эталон)
+
+' ---- ROS 2: только HIL и shadow mode ----
+isaac ..> bridge : HIL, shadow mode
+bridge ..> drv
+drv ..> drive : управление приводом
+drv ..> bag : запись (опционально)
+
+note bottom of L4
+  В измерительном контуре ROS 2 не используется:
+  метки времени ставит микроконтроллер,
+  джиттер ROS 2 недопустим для сигналов 1 кГц.
+end note
+
+legend right
+  Сплошная стрелка: поток данных или зависимость.
+  Пунктир: оценка адекватности и связи слоя 4.
+  Слой 4 подключается на этапе HIL и shadow mode.
+end legend
+
+@enduml
