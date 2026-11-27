@@ -1,0 +1,158 @@
+@startuml class-diagram-ros2
+title Диаграмма классов: слой 4 (ROS 2, только HIL и shadow mode)
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam classAttributeIconSize 0
+skinparam class {
+  BackgroundColor White
+  BorderColor #444444
+  BackgroundColor<<ROS 2>> #FDECEC
+  BackgroundColor<<project>> #EAF2FF
+  BackgroundColor<<interface>> #EDF8EE
+  BackgroundColor<<message>> #FFF6E5
+  BackgroundColor<<external>> #EEEEEE
+}
+
+' ---------------- Библиотека ROS 2 ----------------
+class "rclcpp::Node" as Node <<ROS 2>> {
+  +create_publisher()
+  +create_subscription()
+  +create_timer()
+}
+
+class Publisher <<ROS 2>> {
+  -topic : Topic
+  -qos : QoSProfile
+  +publish(msg)
+}
+
+class Subscription <<ROS 2>> {
+  -topic : Topic
+  -qos : QoSProfile
+  +on_message(msg)
+}
+
+class Timer <<ROS 2>> {
+  -period : duration
+  +on_tick()
+}
+
+class Topic <<ROS 2>> {
+  +name : string
+  +msg_type : string
+}
+
+class QoSProfile <<ROS 2>> {
+  +reliability
+  +durability
+  +depth
+}
+
+' ---------------- Классы проекта ----------------
+class ActuatorDriverNode <<project>> {
+  -hardware : ActuatorHardware
+  -state_pub : Publisher
+  -cmd_sub : Subscription
+  -loop_timer : Timer
+  +on_command(cmd)
+  +publish_state()
+}
+
+class SimBridgeNode <<project>> {
+  -cmd_pub : Publisher
+  -state_sub : Subscription
+  +forward_command()
+  +forward_state()
+}
+
+class Rosbag2Recorder <<project>> {
+  -topics : string[]
+  -writer : BagWriter
+  +start()
+  +stop()
+}
+
+class BagWriter <<ROS 2>> {
+  +write(msg)
+}
+
+interface ActuatorHardware <<interface>> {
+  +read_state() : JointState
+  +write_command(cmd)
+}
+
+class ActuatorHardwareImpl <<project>> {
+  драйвер выбранного привода
+  +read_state() : JointState
+  +write_command(cmd)
+}
+
+class IsaacSim <<external>> {
+  Isaac Sim (ROS 2 Bridge)
+}
+
+' ---------------- Сообщения ----------------
+class JointState <<message>> {
+  +header : Header
+  +name[]
+  +position[]
+  +velocity[]
+  +effort[]
+}
+
+class ActuatorCommand <<message>> {
+  +header : Header
+  +mode
+  +value
+}
+
+class Header <<message>> {
+  +stamp
+  +frame_id
+}
+
+' ---- наследование (фиолетовая сплошная) ----
+Node <|-[#8A2BE2]- ActuatorDriverNode
+Node <|-[#8A2BE2]- SimBridgeNode
+Node <|-[#8A2BE2]- Rosbag2Recorder
+
+' ---- реализация (фиолетовый пунктир) ----
+ActuatorHardware <|.[#8A2BE2]. ActuatorHardwareImpl
+
+' ---- композиция (красная, закрашенный ромб) ----
+Node "1" *-[#D62828]- "0..*" Publisher
+Node "1" *-[#D62828]- "0..*" Subscription
+Node "1" *-[#D62828]- "0..*" Timer
+Rosbag2Recorder "1" *-[#D62828]- "1" BagWriter
+JointState *-[#D62828]- Header
+ActuatorCommand *-[#D62828]- Header
+
+' ---- агрегация (оранжевая, пустой ромб) ----
+Publisher o-[#E07B16]- QoSProfile
+Subscription o-[#E07B16]- QoSProfile
+
+' ---- ассоциация (синяя сплошная) ----
+Publisher -[#3B3BD6]-> Topic : публикует в
+Subscription -[#3B3BD6]-> Topic : читает из
+SimBridgeNode -[#3B3BD6]-> IsaacSim : обмен с симулятором
+
+' ---- зависимость (зелёный пунктир) ----
+ActuatorDriverNode .[#1E9E6A].> ActuatorHardware : вызывает
+ActuatorDriverNode .[#1E9E6A].> JointState : создаёт
+ActuatorDriverNode .[#1E9E6A].> ActuatorCommand : принимает
+SimBridgeNode .[#1E9E6A].> ActuatorCommand : создаёт
+SimBridgeNode .[#1E9E6A].> JointState : принимает
+Rosbag2Recorder .[#1E9E6A].> Topic : записывает
+
+legend right
+  Виды связей
+  Наследование: фиолетовая сплошная, пустой треугольник
+  Реализация: фиолетовый пунктир, пустой треугольник
+  Зависимость: зелёный пунктир, открытая стрелка
+  Ассоциация: синяя сплошная, открытая стрелка
+  Агрегация: оранжевая, пустой ромб
+  Композиция: красная, закрашенный ромб
+endlegend
+
+@enduml
